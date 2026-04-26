@@ -1,7 +1,27 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Droplets, Thermometer, Activity, TrendingUp } from "lucide-react"
+import Image from "next/image";
+import { useState, useEffect, useRef } from "react"
+import { Droplets, Thermometer, Activity, TrendingUp, CheckCircle } from "lucide-react"
+import Link from "next/link"
+import { toast } from "sonner"
+import { SettingsModal } from "@/components/settings-modal"
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
+
+type SensorPoint = {
+  humidity: number
+  temperature: number
+  vibration_status?: boolean
+  created_at: string
+}
 
 // Circular Gauge Component
 function HumidityGauge({ value }: { value: number }) {
@@ -113,8 +133,19 @@ function StatusIndicator({ isActive }: { isActive: boolean }) {
   )
 }
 
-// Drying Curve Placeholder Component
-function DryingCurveChart() {
+// Drying Curve Component
+function DryingCurveChart({ points }: { points: SensorPoint[] }) {
+  const chartData = points.map((point) => ({
+    humidity: Math.round(point.humidity),
+    temperature: Math.round(point.temperature),
+    time: new Date(point.created_at).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  }))
+
+  const hasEnoughData = chartData.length > 1
+
   return (
     <div className="bg-zinc-900/80 backdrop-blur-sm border border-zinc-800 rounded-2xl p-6">
       <div className="flex items-center justify-between mb-6">
@@ -138,37 +169,74 @@ function DryingCurveChart() {
           </div>
         </div>
       </div>
-      
-      {/* Chart Placeholder */}
-      <div className="relative h-48 flex items-end justify-between gap-1 px-2">
-        {/* Y-axis labels */}
-        <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-between text-xs text-zinc-600 -ml-1">
-          <span>100%</span>
-          <span>50%</span>
-          <span>0%</span>
-        </div>
-        
-        {/* Placeholder bars representing drying curve */}
-        {[95, 88, 76, 65, 52, 45, 38, 32, 28, 25, 22, 20].map((height, i) => (
-          <div key={i} className="flex-1 flex flex-col items-center gap-1">
-            <div
-              className="w-full bg-gradient-to-t from-cyan-500/80 to-blue-500/80 rounded-t transition-all duration-300 hover:from-cyan-400 hover:to-blue-400"
-              style={{ height: `${height}%` }}
-            />
+
+      <div className="h-56">
+        {hasEnoughData ? (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+              <CartesianGrid stroke="#3f3f46" strokeDasharray="3 3" />
+              <XAxis
+                dataKey="time"
+                tick={{ fill: "#71717a", fontSize: 12 }}
+                tickLine={false}
+                axisLine={false}
+                minTickGap={24}
+              />
+              <YAxis
+                yAxisId="humidity"
+                domain={[0, 100]}
+                tick={{ fill: "#71717a", fontSize: 12 }}
+                tickLine={false}
+                axisLine={false}
+                width={36}
+              />
+              <YAxis
+                yAxisId="temperature"
+                orientation="right"
+                domain={[0, 80]}
+                tick={{ fill: "#71717a", fontSize: 12 }}
+                tickLine={false}
+                axisLine={false}
+                width={36}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: "#18181b",
+                  border: "1px solid #3f3f46",
+                  color: "#ffffff",
+                  borderRadius: "0.75rem",
+                }}
+              />
+              <Line
+                yAxisId="humidity"
+                type="monotone"
+                dataKey="humidity"
+                stroke="#22d3ee"
+                strokeWidth={2}
+                dot={false}
+                name="Humidity %"
+              />
+              <Line
+                yAxisId="temperature"
+                type="monotone"
+                dataKey="temperature"
+                stroke="#fb923c"
+                strokeWidth={2}
+                dot={false}
+                name="Temperature °C"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="h-full flex items-center justify-center rounded-xl border border-dashed border-zinc-700 text-zinc-500 text-sm">
+            Waiting for more sensor readings to build chart...
           </div>
-        ))}
-        
-        {/* X-axis labels */}
-        <div className="absolute -bottom-6 left-0 right-0 flex justify-between text-xs text-zinc-600 px-2">
-          <span>0m</span>
-          <span>30m</span>
-          <span>60m</span>
-        </div>
+        )}
       </div>
-      
+
       <div className="mt-10 pt-4 border-t border-zinc-800 flex items-center justify-between text-sm">
-        <span className="text-zinc-500">Estimated time remaining</span>
-        <span className="text-white font-medium">~12 minutes</span>
+        <span className="text-zinc-500">Data points</span>
+        <span className="text-white font-medium">{chartData.length}</span>
       </div>
     </div>
   )
@@ -179,33 +247,118 @@ export default function LaundryDashboard() {
   const [temperature, setTemperature] = useState(42)
   const [isVibrating, setIsVibrating] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)
+  const [history, setHistory] = useState<SensorPoint[]>([])
+  const previousVibratingRef = useRef(true)
 
   useEffect(() => {
-    const loadLatestSensorData = async () => {
+    const loadSensorData = async () => {
       try {
-        const response = await fetch("/api/sensor", { cache: "no-store" })
+        const response = await fetch("/api/sensor?historyLimit=24", { cache: "no-store" })
         const result = await response.json()
 
-        if (!response.ok || !result?.success || !result?.data) return
+        if (!response.ok || !result?.success) return
 
-        const latest = result.data as {
-          humidity: number
-          temperature: number
-          vibration_status: boolean
-          created_at?: string
+        const latest = result.data as SensorPoint | null
+        const nextHistory = Array.isArray(result.history) ? (result.history as SensorPoint[]) : []
+
+        if (latest) {
+          setHumidity(latest.humidity)
+          setTemperature(latest.temperature)
+          setIsVibrating(Boolean(latest.vibration_status))
+          setLastUpdated(latest.created_at ?? null)
         }
 
-        setHumidity(latest.humidity)
-        setTemperature(latest.temperature)
-        setIsVibrating(latest.vibration_status)
-        setLastUpdated(latest.created_at ?? null)
+        setHistory(nextHistory)
       } catch {
         // Keep default fallback values if fetch fails.
       }
     }
 
-    loadLatestSensorData()
+    loadSensorData()
+    const refreshHandle = setInterval(loadSensorData, 10_000)
+
+    return () => clearInterval(refreshHandle)
   }, [])
+
+  // Detect cycle completion and show notification
+  useEffect(() => {
+    const wasVibrating = previousVibratingRef.current
+    const isNowVibrating = isVibrating
+
+    if (wasVibrating && !isNowVibrating) {
+      // Cycle completed!
+      const cycleDuration = history.length > 0 
+        ? Math.round((new Date(history[history.length - 1].created_at).getTime() - 
+                      new Date(history[0].created_at).getTime()) / 1000 / 60)
+        : 0
+
+      // Show on-screen toast
+      toast.success(
+        <div className="flex items-start gap-3">
+          <CheckCircle className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="font-semibold text-white">Cycle Complete! 🎉</p>
+            <div className="text-sm text-zinc-300 mt-2 space-y-1">
+              <p>Final Humidity: <span className="font-medium text-cyan-400">{Math.round(humidity)}%</span></p>
+              <p>Final Temperature: <span className="font-medium text-orange-400">{Math.round(temperature)}°C</span></p>
+              {cycleDuration > 0 && (
+                <p>Duration: <span className="font-medium text-blue-400">{cycleDuration} min</span></p>
+              )}
+            </div>
+          </div>
+        </div>,
+        {
+          duration: 6000,
+          position: "top-center",
+          className: "bg-zinc-900 border border-emerald-500/30",
+        }
+      )
+
+      // Send SMS and email notifications
+      const sendNotifications = async () => {
+        try {
+          const settings = localStorage.getItem("drypod-notifications")
+          if (!settings) return
+
+          const parsed = JSON.parse(settings)
+
+          // Send SMS
+          if (parsed.enableSms && parsed.phoneNumber) {
+            await fetch("/api/notify/sms", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                phoneNumber: parsed.phoneNumber,
+                humidity,
+                temperature,
+                duration: cycleDuration,
+              }),
+            }).catch((err) => console.error("SMS notification failed:", err))
+          }
+
+          // Send Email
+          if (parsed.enableEmail && parsed.email) {
+            await fetch("/api/notify/email", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                email: parsed.email,
+                humidity,
+                temperature,
+                duration: cycleDuration,
+              }),
+            }).catch((err) => console.error("Email notification failed:", err))
+          }
+        } catch (error) {
+          console.error("Failed to send notifications:", error)
+        }
+      }
+
+      sendNotifications()
+    }
+
+    previousVibratingRef.current = isNowVibrating
+  }, [isVibrating, humidity, temperature, history])
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white p-4 md:p-8">
@@ -213,14 +366,29 @@ export default function LaundryDashboard() {
       <header className="max-w-6xl mx-auto mb-8">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold text-white">Smart Laundry Monitor</h1>
+            <Image 
+            src="/logo.png" 
+            alt="DryPod Logo" 
+            width={120} 
+            height={32} 
+            className="h-30 w-auto object-contain" 
+            />
             <p className="text-zinc-500 mt-1">
               {lastUpdated ? `Last reading: ${new Date(lastUpdated).toLocaleString()}` : "Latest sensor reading"}
             </p>
           </div>
-          <div className="flex items-center gap-2 px-4 py-2 bg-zinc-900 rounded-full border border-zinc-800">
-            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-sm text-zinc-400">Connected</span>
+          <div className="flex items-center gap-3">
+            <SettingsModal />
+            <Link
+              href="/past-cycles"
+              className="px-4 py-2 text-sm rounded-full border border-zinc-700 text-zinc-300 hover:bg-zinc-800 transition-colors"
+            >
+              Past Cycles
+            </Link>
+            <div className="flex items-center gap-2 px-4 py-2 bg-zinc-900 rounded-full border border-zinc-800">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-sm text-zinc-400">Connected</span>
+            </div>
           </div>
         </div>
       </header>
@@ -254,7 +422,7 @@ export default function LaundryDashboard() {
             </div>
 
             {/* Bottom Row - Drying Curve */}
-            <DryingCurveChart />
+            <DryingCurveChart points={history} />
           </div>
         </div>
 

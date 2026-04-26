@@ -38,20 +38,38 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const supabase = getSupabaseClient();
+    const { searchParams } = new URL(request.url);
+    const historyLimitRaw = Number(searchParams.get('historyLimit') ?? 24);
+    const historyLimit = Number.isFinite(historyLimitRaw)
+      ? Math.min(Math.max(Math.floor(historyLimitRaw), 1), 200)
+      : 24;
 
-    const { data, error } = await supabase
-      .from('sensor_data')
-      .select('humidity, temperature, vibration_status, created_at')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const [{ data: latest, error: latestError }, { data: history, error: historyError }] =
+      await Promise.all([
+        supabase
+          .from('sensor_data')
+          .select('humidity, temperature, vibration_status, created_at')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from('sensor_data')
+          .select('humidity, temperature, created_at')
+          .order('created_at', { ascending: false })
+          .limit(historyLimit),
+      ]);
 
-    if (error) throw error;
+    if (latestError) throw latestError;
+    if (historyError) throw historyError;
+    const orderedHistory = [...(history ?? [])].reverse();
 
-    return NextResponse.json({ success: true, data }, { status: 200 });
+    return NextResponse.json(
+      { success: true, data: latest, history: orderedHistory },
+      { status: 200 }
+    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown server error';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
