@@ -5,6 +5,7 @@ import { Settings, X, Check } from "lucide-react"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -15,53 +16,37 @@ import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
 
 type NotificationSettings = {
-  phoneNumber: string
   email: string
-  enableSms: boolean
-  enableEmail: boolean
 }
 
 const defaultSettings: NotificationSettings = {
-  phoneNumber: "",
   email: "",
-  enableSms: false,
-  enableEmail: false,
 }
 
 export function SettingsModal() {
   const [open, setOpen] = useState(false)
   const [settings, setSettings] = useState<NotificationSettings>(defaultSettings)
   const [isSaving, setIsSaving] = useState(false)
-  const [isTesting, setIsTesting] = useState(false)
+  const [testingType, setTestingType] = useState<string | null>(null)
 
-  // Load settings from localStorage on mount
   useEffect(() => {
     const stored = localStorage.getItem("drypod-notifications")
     if (stored) {
       try {
-        setSettings(JSON.parse(stored))
+        const parsed = JSON.parse(stored)
+        setSettings({ email: parsed.email ?? "" })
       } catch {
         // Ignore parse errors
       }
     }
   }, [open])
 
-  const handleSave = async () => {
-    // Validate inputs
-    if (settings.enableSms && !settings.phoneNumber.trim()) {
-      toast.error("Phone number is required for SMS notifications")
+  const handleSave = () => {
+    if (!settings.email.trim()) {
+      toast.error("Email is required")
       return
     }
-
-    if (settings.enableEmail && !settings.email.trim()) {
-      toast.error("Email is required for email notifications")
-      return
-    }
-
-    if (
-      settings.enableEmail &&
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(settings.email)
-    ) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(settings.email)) {
       toast.error("Please enter a valid email address")
       return
     }
@@ -69,71 +54,44 @@ export function SettingsModal() {
     setIsSaving(true)
     try {
       localStorage.setItem("drypod-notifications", JSON.stringify(settings))
-      toast.success("Settings saved successfully!")
+      toast.success("Settings saved!")
       setOpen(false)
-    } catch (error) {
+    } catch {
       toast.error("Failed to save settings")
-      console.error(error)
     } finally {
       setIsSaving(false)
     }
   }
 
-  const handleTest = async () => {
-    // Validate inputs
-    if (!settings.phoneNumber && !settings.email) {
-      toast.error("Enter at least one contact method to test")
+  const handleTest = async (type: string) => {
+    if (!settings.email.trim()) {
+      toast.error("Enter an email first")
       return
     }
 
-    if (
-      settings.email &&
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(settings.email)
-    ) {
-      toast.error("Please enter a valid email address")
-      return
-    }
-
-    setIsTesting(true)
+    setTestingType(type)
     try {
-      const res = await fetch("/api/notify/test", {
+      const res = await fetch("/api/notify/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phoneNumber: settings.phoneNumber || null,
-          email: settings.email || null,
-        }),
+        body: JSON.stringify({ email: settings.email, type }),
       })
 
       const data = await res.json()
 
-      if (!data.success) {
-        toast.error("Test notifications failed: " + data.error)
-        return
+      if (data.success) {
+        toast.success("Test email sent!")
+      } else {
+        toast.error("Email failed: " + data.error)
       }
-
-      // Show results
-      const results = data.results
-      if (results.sms?.success) {
-        toast.success("📱 Test SMS sent successfully!")
-      }
-      if (results.sms && !results.sms.success) {
-        toast.error("SMS failed: " + results.sms.message)
-      }
-
-      if (results.email?.success) {
-        toast.success("📧 Test email sent successfully!")
-      }
-      if (results.email && !results.email.success) {
-        toast.error("Email failed: " + results.email.message)
-      }
-    } catch (error) {
-      toast.error("Failed to test notifications")
-      console.error(error)
+    } catch {
+      toast.error("Failed to send test notification")
     } finally {
-      setIsTesting(false)
+      setTestingType(null)
     }
   }
+
+  const emailValid = settings.email.trim().length > 0
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -148,85 +106,60 @@ export function SettingsModal() {
             <Settings className="w-5 h-5" />
             Notification Settings
           </DialogTitle>
+          <DialogDescription className="text-zinc-400">
+            Enter your email to receive dryer notifications.
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 py-6">
-          {/* SMS Settings */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                id="enableSms"
-                checked={settings.enableSms}
-                onChange={(e) =>
-                  setSettings({ ...settings, enableSms: e.target.checked })
-                }
-                className="w-4 h-4 rounded border-zinc-600 bg-zinc-800"
-              />
-              <Label htmlFor="enableSms" className="text-white font-medium cursor-pointer">
-                Text Message (SMS)
-              </Label>
-            </div>
-            {settings.enableSms && (
-              <div className="ml-7">
-                <Label htmlFor="phone" className="text-sm text-zinc-400">
-                  Phone Number (with country code, e.g., +1234567890)
-                </Label>
-                <Input
-                  id="phone"
-                  type="tel"
-                  placeholder="+1 (555) 123-4567"
-                  value={settings.phoneNumber}
-                  onChange={(e) =>
-                    setSettings({ ...settings, phoneNumber: e.target.value })
-                  }
-                  className="mt-2 bg-zinc-800 border-zinc-700 text-white"
-                />
-              </div>
-            )}
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label htmlFor="email" className="text-sm text-zinc-300">
+              Email Address
+            </Label>
+            <Input
+              id="email"
+              type="email"
+              placeholder="you@example.com"
+              value={settings.email}
+              onChange={(e) => setSettings({ email: e.target.value })}
+              className="bg-zinc-800 border-zinc-700 text-white"
+            />
           </div>
 
-          {/* Email Settings */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                id="enableEmail"
-                checked={settings.enableEmail}
-                onChange={(e) =>
-                  setSettings({ ...settings, enableEmail: e.target.checked })
-                }
-                className="w-4 h-4 rounded border-zinc-600 bg-zinc-800"
-              />
-              <Label htmlFor="enableEmail" className="text-white font-medium cursor-pointer">
-                Email
-              </Label>
+          <div className="space-y-2">
+            <Label className="text-sm text-zinc-300">Test Notifications</Label>
+            <div className="grid grid-cols-1 gap-2">
+              <button
+                onClick={() => handleTest("clothes")}
+                disabled={!emailValid || testingType !== null}
+                className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <span className="text-amber-400">Take Your Clothes Out</span>
+                <span className="text-zinc-500 text-xs">
+                  {testingType === "clothes" ? "Sending..." : "Test"}
+                </span>
+              </button>
+              <button
+                onClick={() => handleTest("finished")}
+                disabled={!emailValid || testingType !== null}
+                className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <span className="text-emerald-400">Your Cycle is Finished</span>
+                <span className="text-zinc-500 text-xs">
+                  {testingType === "finished" ? "Sending..." : "Test"}
+                </span>
+              </button>
+              <button
+                onClick={() => handleTest("tamper")}
+                disabled={!emailValid || testingType !== null}
+                className="flex items-center justify-between px-3 py-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-sm hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <span className="text-red-400">Tampering Alert</span>
+                <span className="text-zinc-500 text-xs">
+                  {testingType === "tamper" ? "Sending..." : "Test"}
+                </span>
+              </button>
             </div>
-            {settings.enableEmail && (
-              <div className="ml-7">
-                <Label htmlFor="email" className="text-sm text-zinc-400">
-                  Email Address
-                </Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={settings.email}
-                  onChange={(e) =>
-                    setSettings({ ...settings, email: e.target.value })
-                  }
-                  className="mt-2 bg-zinc-800 border-zinc-700 text-white"
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Info Message */}
-          <div className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-3">
-            <p className="text-sm text-zinc-300">
-              <span className="font-medium">💡 Tip:</span> Notifications will be sent when your
-              cycle completes. Make sure to save your preferred contact information.
-            </p>
           </div>
         </div>
 
@@ -240,16 +173,8 @@ export function SettingsModal() {
             Cancel
           </Button>
           <Button
-            variant="outline"
-            onClick={handleTest}
-            disabled={isTesting || (!settings.phoneNumber && !settings.email)}
-            className="flex-1 border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-          >
-            {isTesting ? "Testing..." : "🧪 Test"}
-          </Button>
-          <Button
             onClick={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || !emailValid}
             className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
           >
             <Check className="w-4 h-4 mr-2" />

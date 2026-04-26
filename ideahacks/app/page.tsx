@@ -1,8 +1,8 @@
 "use client"
 
 import Image from "next/image";
-import { useState, useEffect, useRef } from "react"
-import { Droplets, Thermometer, Activity, TrendingUp, CheckCircle } from "lucide-react"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { Droplets, Thermometer, Activity, TrendingUp, CheckCircle, Shield, ShieldAlert, ShieldOff } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
 import { SettingsModal } from "@/components/settings-modal"
@@ -23,7 +23,6 @@ type SensorPoint = {
   created_at: string
 }
 
-// Circular Gauge Component
 function HumidityGauge({ value }: { value: number }) {
   const radius = 120
   const strokeWidth = 16
@@ -34,7 +33,6 @@ function HumidityGauge({ value }: { value: number }) {
   return (
     <div className="relative flex items-center justify-center">
       <svg height={radius * 2} width={radius * 2} className="transform -rotate-90">
-        {/* Background circle */}
         <circle
           stroke="currentColor"
           className="text-zinc-800"
@@ -44,7 +42,6 @@ function HumidityGauge({ value }: { value: number }) {
           cx={radius}
           cy={radius}
         />
-        {/* Progress circle */}
         <circle
           stroke="url(#gradient)"
           fill="transparent"
@@ -73,7 +70,6 @@ function HumidityGauge({ value }: { value: number }) {
   )
 }
 
-// Temperature Card Component
 function TemperatureCard({ value }: { value: number }) {
   return (
     <div className="bg-zinc-900/80 backdrop-blur-sm border border-zinc-800 rounded-2xl p-6">
@@ -100,40 +96,73 @@ function TemperatureCard({ value }: { value: number }) {
   )
 }
 
-// Status Indicator Component
-function StatusIndicator({ isActive }: { isActive: boolean }) {
+function StatusIndicator({ isActive, isArmed, onArm, onDisarm }: {
+  isActive: boolean
+  isArmed: boolean
+  onArm: () => void
+  onDisarm: () => void
+}) {
   return (
     <div className="bg-zinc-900/80 backdrop-blur-sm border border-zinc-800 rounded-2xl p-6">
       <div className="flex items-center gap-3 mb-4">
-        <div className={`p-3 rounded-xl ${isActive ? "bg-emerald-500/10" : "bg-zinc-700/30"}`}>
-          <Activity className={`w-6 h-6 ${isActive ? "text-emerald-400" : "text-zinc-500"}`} />
+        <div className={`p-3 rounded-xl ${isActive ? "bg-emerald-500/10" : isArmed ? "bg-red-500/10" : "bg-zinc-700/30"}`}>
+          {isArmed ? (
+            <ShieldAlert className="w-6 h-6 text-red-400" />
+          ) : (
+            <Activity className={`w-6 h-6 ${isActive ? "text-emerald-400" : "text-zinc-500"}`} />
+          )}
         </div>
         <span className="text-zinc-400 font-medium">Drum Status</span>
       </div>
       <div className="flex items-center gap-3">
         <div className="relative">
           <div
-            className={`w-4 h-4 rounded-full ${isActive ? "bg-emerald-500" : "bg-zinc-600"}`}
+            className={`w-4 h-4 rounded-full ${isActive ? "bg-emerald-500" : isArmed ? "bg-red-500" : "bg-zinc-600"}`}
           />
-          {isActive && (
-            <div className="absolute inset-0 w-4 h-4 rounded-full bg-emerald-500 animate-ping opacity-75" />
+          {(isActive || isArmed) && (
+            <div className={`absolute inset-0 w-4 h-4 rounded-full animate-ping opacity-75 ${isActive ? "bg-emerald-500" : "bg-red-500"}`} />
           )}
         </div>
-        <span className={`text-2xl font-semibold ${isActive ? "text-emerald-400" : "text-zinc-500"}`}>
-          {isActive ? "Tumbling" : "Cycle Complete"}
+        <span className={`text-2xl font-semibold ${isActive ? "text-emerald-400" : isArmed ? "text-red-400" : "text-zinc-500"}`}>
+          {isActive ? "Tumbling" : isArmed ? "Armed" : "Cycle Complete"}
         </span>
       </div>
       {isActive && (
-        <p className="mt-3 text-sm text-zinc-500">Vibration detected • Drum is spinning</p>
+        <p className="mt-3 text-sm text-zinc-500">Vibration detected - Drum is spinning</p>
       )}
+      {!isActive && isArmed && (
+        <p className="mt-3 text-sm text-zinc-500">Monitoring for tampering...</p>
+      )}
+      {!isActive && !isArmed && (
+        <p className="mt-3 text-sm text-zinc-500">No vibration - Ready to unload</p>
+      )}
+
       {!isActive && (
-        <p className="mt-3 text-sm text-zinc-500">No vibration • Ready to unload</p>
+        <button
+          onClick={isArmed ? onDisarm : onArm}
+          className={`mt-4 w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+            isArmed
+              ? "bg-red-500/10 border border-red-500/30 text-red-400 hover:bg-red-500/20"
+              : "bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700"
+          }`}
+        >
+          {isArmed ? (
+            <>
+              <ShieldOff className="w-4 h-4" />
+              Disarm
+            </>
+          ) : (
+            <>
+              <Shield className="w-4 h-4" />
+              Arm Security
+            </>
+          )}
+        </button>
       )}
     </div>
   )
 }
 
-// Drying Curve Component
 function DryingCurveChart({ points }: { points: SensorPoint[] }) {
   const chartData = points.map((point) => ({
     humidity: Math.round(point.humidity),
@@ -248,7 +277,40 @@ export default function LaundryDashboard() {
   const [isVibrating, setIsVibrating] = useState(true)
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)
   const [history, setHistory] = useState<SensorPoint[]>([])
+  const [isArmed, setIsArmed] = useState(false)
+
   const previousVibratingRef = useRef(true)
+  const clothesNotifiedRef = useRef(false)
+  const cycleNotifiedRef = useRef(false)
+  const tamperNotifiedRef = useRef(false)
+
+  const getEmail = useCallback((): string | null => {
+    try {
+      const stored = localStorage.getItem("drypod-notifications")
+      if (!stored) return null
+      const parsed = JSON.parse(stored)
+      return parsed.email || null
+    } catch {
+      return null
+    }
+  }, [])
+
+  const notify = useCallback(async (type: string, toastMsg: string) => {
+    toast.success(toastMsg, { duration: 6000, position: "top-center" })
+
+    const email = getEmail()
+    if (!email) return
+
+    try {
+      await fetch("/api/notify/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, type }),
+      })
+    } catch (err) {
+      console.error("Email notification failed:", err)
+    }
+  }, [getEmail])
 
   useEffect(() => {
     const loadSensorData = async () => {
@@ -276,93 +338,69 @@ export default function LaundryDashboard() {
 
     loadSensorData()
     const refreshHandle = setInterval(loadSensorData, 10_000)
-
     return () => clearInterval(refreshHandle)
   }, [])
 
-  // Detect cycle completion and show notification
+  // 1. "Take Your Clothes out" — humidity < 7% or temperature < 54.4°C (while cycle was running)
+  useEffect(() => {
+    if (clothesNotifiedRef.current) return
+    if (!isVibrating && previousVibratingRef.current) {
+      // Just stopped — check thresholds on next readings
+    }
+    if (!isVibrating && (humidity < 7 || temperature < 54.4)) {
+      clothesNotifiedRef.current = true
+      notify("clothes", "Take your clothes out of the dryer!")
+    }
+  }, [humidity, temperature, isVibrating, notify])
+
+  // 2. "Your Cycle is Finished" — vibration stops after running
   useEffect(() => {
     const wasVibrating = previousVibratingRef.current
     const isNowVibrating = isVibrating
 
-    if (wasVibrating && !isNowVibrating) {
-      // Cycle completed!
-      const cycleDuration = history.length > 0 
-        ? Math.round((new Date(history[history.length - 1].created_at).getTime() - 
-                      new Date(history[0].created_at).getTime()) / 1000 / 60)
-        : 0
+    if (wasVibrating && !isNowVibrating && !cycleNotifiedRef.current) {
+      cycleNotifiedRef.current = true
+      notify("finished", "Your cycle is finished!")
+    }
 
-      // Show on-screen toast
-      toast.success(
-        <div className="flex items-start gap-3">
-          <CheckCircle className="w-5 h-5 text-emerald-400 mt-0.5 flex-shrink-0" />
-          <div className="flex-1">
-            <p className="font-semibold text-white">Cycle Complete! 🎉</p>
-            <div className="text-sm text-zinc-300 mt-2 space-y-1">
-              <p>Final Humidity: <span className="font-medium text-cyan-400">{Math.round(humidity)}%</span></p>
-              <p>Final Temperature: <span className="font-medium text-orange-400">{Math.round(temperature)}°C</span></p>
-              {cycleDuration > 0 && (
-                <p>Duration: <span className="font-medium text-blue-400">{cycleDuration} min</span></p>
-              )}
-            </div>
-          </div>
-        </div>,
-        {
-          duration: 6000,
-          position: "top-center",
-          className: "bg-zinc-900 border border-emerald-500/30",
-        }
-      )
-
-      // Send SMS and email notifications
-      const sendNotifications = async () => {
-        try {
-          const settings = localStorage.getItem("drypod-notifications")
-          if (!settings) return
-
-          const parsed = JSON.parse(settings)
-
-          // Send SMS
-          if (parsed.enableSms && parsed.phoneNumber) {
-            await fetch("/api/notify/sms", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                phoneNumber: parsed.phoneNumber,
-                humidity,
-                temperature,
-                duration: cycleDuration,
-              }),
-            }).catch((err) => console.error("SMS notification failed:", err))
-          }
-
-          // Send Email
-          if (parsed.enableEmail && parsed.email) {
-            await fetch("/api/notify/email", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                email: parsed.email,
-                humidity,
-                temperature,
-                duration: cycleDuration,
-              }),
-            }).catch((err) => console.error("Email notification failed:", err))
-          }
-        } catch (error) {
-          console.error("Failed to send notifications:", error)
-        }
-      }
-
-      sendNotifications()
+    if (isNowVibrating) {
+      // Cycle started again — reset all flags
+      cycleNotifiedRef.current = false
+      clothesNotifiedRef.current = false
+      tamperNotifiedRef.current = false
+      setIsArmed(false)
     }
 
     previousVibratingRef.current = isNowVibrating
-  }, [isVibrating, humidity, temperature, history])
+  }, [isVibrating, notify])
+
+  // 3. Tampering — armed + movement detected
+  useEffect(() => {
+    if (!isArmed || tamperNotifiedRef.current) return
+
+    if (isVibrating) {
+      tamperNotifiedRef.current = true
+      notify("tamper", "Security alert: your laundry has been tampered with!")
+    }
+  }, [isArmed, isVibrating, notify])
+
+  const handleArm = () => {
+    setIsArmed(true)
+    tamperNotifiedRef.current = false
+    toast("Security armed — you'll be notified if tampering is detected.", {
+      position: "top-center",
+      duration: 3000,
+    })
+  }
+
+  const handleDisarm = () => {
+    setIsArmed(false)
+    tamperNotifiedRef.current = false
+    toast("Security disarmed.", { position: "top-center", duration: 2000 })
+  }
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white p-4 md:p-8">
-      {/* Header */}
       <header className="max-w-6xl mx-auto mb-8">
         <div className="flex items-center justify-between">
           <div>
@@ -393,10 +431,8 @@ export default function LaundryDashboard() {
         </div>
       </header>
 
-      {/* Main Dashboard Grid */}
       <main className="max-w-6xl mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - Humidity Gauge */}
           <div className="lg:col-span-1 flex items-center justify-center">
             <div className="bg-zinc-900/80 backdrop-blur-sm border border-zinc-800 rounded-2xl p-8 w-full flex flex-col items-center">
               <HumidityGauge value={Math.round(humidity)} />
@@ -413,19 +449,20 @@ export default function LaundryDashboard() {
             </div>
           </div>
 
-          {/* Right Column - Stats and Chart */}
           <div className="lg:col-span-2 flex flex-col gap-6">
-            {/* Top Row - Temp and Status */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <TemperatureCard value={Math.round(temperature)} />
-              <StatusIndicator isActive={isVibrating} />
+              <StatusIndicator
+                isActive={isVibrating}
+                isArmed={isArmed}
+                onArm={handleArm}
+                onDisarm={handleDisarm}
+              />
             </div>
 
-            {/* Bottom Row - Drying Curve */}
             <DryingCurveChart points={history} />
           </div>
         </div>
-
       </main>
     </div>
   )
