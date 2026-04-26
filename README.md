@@ -1,2 +1,2 @@
 # IDEAHACKS-2026
-DryCURE
+DryPod
