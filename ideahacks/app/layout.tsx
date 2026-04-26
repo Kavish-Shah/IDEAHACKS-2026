@@ -36,10 +36,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geist.variable} ${geistMono.variable} font-sans antialiased`}>
-        {children}
-        {process.env.NODE_ENV === 'production' && <Analytics />}
-      </body>
-    </html>
+    {/* Add suppressHydrationWarning here */}
+    <body suppressHydrationWarning className="...">
+      {children}
+    </body>
+  </html>
   )
 }

@@ -405,11 +405,11 @@ export default function LaundryDashboard() {
         <div className="flex items-center justify-between">
           <div>
             <Image 
-            src="/logo.png" 
-            alt="DryPod Logo" 
-            width={120} 
-            height={32} 
-            className="h-30 w-auto object-contain" 
+              src="/logo.png" 
+              alt="Logo" 
+              width={100} 
+              height={100} 
+              priority // <-- Add this
             />
             <p className="text-zinc-500 mt-1">
               {lastUpdated ? `Last reading: ${new Date(lastUpdated).toLocaleString()}` : "Latest sensor reading"}
