@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { AlertTriangle, Clock3, DollarSign, History } from "lucide-react"
 
@@ -29,7 +29,7 @@ function MetricCard({
 }: {
   title: string
   value: string
-  icon: JSX.Element
+  icon: React.ReactNode
 }) {
   return (
     <div className="bg-zinc-900/80 backdrop-blur-sm border border-zinc-800 rounded-2xl p-5">
