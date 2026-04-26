@@ -10,17 +10,17 @@
 // ==========================================
 
 // 1. Hardware Pins
-const int PIN_I2C_SDA = 8;     
-const int PIN_I2C_SCL = 9;     
-const int PIN_ACCEL_X = 4;     // X-Axis
-const int PIN_ACCEL_Y = 5;     // Y-Axis
-const int PIN_ACCEL_Z = 6;     // Z-Axis
+const int PIN_I2C_SDA = 10;     
+const int PIN_I2C_SCL = 11;     
+const int PIN_ACCEL_X = 1;     // X-Axis
+const int PIN_ACCEL_Y = 2;     // Y-Axis
+const int PIN_ACCEL_Z = 3;     // Z-Axis
 const int PIN_SPEAKER = 18;    // PWM pin for LM386 Audio Amp
 
 // 2. Network & Backend
-const char* WIFI_SSID = "YOUR_WIFI"; // likely will be hotspot from phone
-const char* WIFI_PASS = "YOUR_PASS";
-const char* SUPABASE_URL = "https://wkkszmswnevtfybmagab.supabase.co";
+const char* WIFI_SSID = "iPhone"; // likely will be hotspot from phone
+const char* WIFI_PASS = "dhruvmystery";
+const char* SUPABASE_URL = "https://wkkszmswnevtfybmagab.supabase.co/rest/v1/sensor_data";
 const char* SUPABASE_ANON_KEY = "sb_publishable_M9yPge4oGqda-2tK5-XYwQ_R3G-gj3h";
 
 // 3. Logic & Timing
